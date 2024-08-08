@@ -1,99 +1,53 @@
 import streamlit as st
-import ollama as ol
-from streamlit_mic_recorder import speech_to_text
+from transformers import pipeline
+import pyttsx3
+import soundfile as sf
+import torch
+import numpy as np
 
+# Initialize models
+stt_model = pipeline("automatic-speech-recognition", model="openai/whisper-large")
+nlp_model = pipeline("text-generation", model="EleutherAI/gpt-j-6B")
+tts_engine = pyttsx3.init()
+
+# Set up the Streamlit page
 st.set_page_config(page_title="🎙️ Voice Bot", layout="wide")
 st.title("🎙️ Speech Bot")
 st.sidebar.title("`Speak with LLMs` \n`in any language`")
 
+def record_voice():
+    st.write("Click the button below and speak.")
+    audio_file = st.file_uploader("Upload audio file", type=["wav"])
+    if audio_file:
+        audio, sr = sf.read(audio_file)
+        return audio, sr
+    return None, None
 
-def language_selector():
-    lang_options = ["ar", "de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru", "zh"]
-    with st.sidebar: 
-        return st.selectbox("Speech Language", ["en"] + lang_options)
-
-def llm_selector():
-    ollama_models = [m['name'] for m in ol.list()['models']]
-    with st.sidebar:
-        return st.selectbox("LLM", ollama_models)
-
-
-def print_txt(text):
-    if any("\u0600" <= c <= "\u06FF" for c in text): # check if text contains Arabic characters
-        text = f"<p style='direction: rtl; text-align: right;'>{text}</p>"
-    st.markdown(text, unsafe_allow_html=True)
-
-
-def print_chat_message(message):
-    text = message["content"]
-    if message["role"] == "user":
-        with st.chat_message("user", avatar="🎙️"):
-            print_txt(text)
-    else:
-        with st.chat_message("assistant", avatar="🦙"):
-            print_txt(text)
-
-
-def record_voice(language="en"):
-    # https://github.com/B4PT0R/streamlit-mic-recorder?tab=readme-ov-file#example
-    state = st.session_state
-
-    if "text_received" not in state:
-        state.text_received = []
-
-    text = speech_to_text(
-        start_prompt="🎤 Click and speak to ask question",
-        stop_prompt="⚠️Stop recording🚨",
-        language=language,
-        use_container_width=True,
-        just_once=True,
-    )
-
-    if text:
-        state.text_received.append(text)
-
-    result = ""
-    for text in state.text_received:
-        result += text
-
-    state.text_received = []
-
-    return result if result else None
-
+def text_to_speech(text):
+    tts_engine.say(text)
+    tts_engine.runAndWait()
 
 def main():
-    model = llm_selector()
-    with st.sidebar:
-        question = record_voice(language=language_selector())
-    
-    # init chat history for a model
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = {}
-    if model not in st.session_state.chat_history:
-        st.session_state.chat_history[model] = []
-    chat_history = st.session_state.chat_history[model]
-    
-    # print conversation history
-    for message in chat_history:
-        print_chat_message(message)
+    st.sidebar.header("Configuration")
+    language = st.sidebar.selectbox("Language", ["en"])
+    model = st.sidebar.selectbox("Model", ["GPT-J"])
 
-    if question:
-        user_message = {"role": "user", "content": question}
-        print_chat_message(user_message)
-        chat_history.append(user_message)
-        response = ol.chat(model=model, messages=chat_history)
-        answer = response['message']['content']
-        ai_message = {"role": "assistant", "content": answer}
-        print_chat_message(ai_message)
-        chat_history.append(ai_message)
+    audio, sr = record_voice()
 
-        # truncate chat history to keep 20 messages max
-        if len(chat_history) > 20:
-            chat_history = chat_history[-20:]
-        
-        # update chat history
-        st.session_state.chat_history[model] = chat_history
+    if audio is not None:
+        # Convert speech to text
+        st.write("Processing your voice...")
+        audio = torch.tensor(audio).unsqueeze(0).float()
+        stt_result = stt_model(audio)["text"]
 
+        st.write(f"You said: {stt_result}")
+
+        # Generate a response
+        response = nlp_model(stt_result, max_length=50)[0]['generated_text']
+        st.write(f"Response: {response}")
+
+        # Convert text to speech
+        text_to_speech(response)
 
 if __name__ == "__main__":
     main()
