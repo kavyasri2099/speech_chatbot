@@ -1,6 +1,6 @@
 streamlit 
-transformers 
 pyttsx3 
 torch 
 librosa 
 soundfile
+transformers
