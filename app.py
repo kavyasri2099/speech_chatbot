@@ -57,6 +57,7 @@ footer_container = st.container()
 with footer_container:
     audio_bytes = audio_recorder()
 
+# Display previous messages
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.write(message["content"])
@@ -69,12 +70,14 @@ if audio_bytes:
 
         transcript = speech_to_text(webm_file_path)
         if transcript:
-            st.session_state.messages.append({"role": "user", "content": transcript})
-            with st.chat_message("user"):
-                st.write(transcript)
+            if st.session_state.messages[-1]["role"] != "user":
+                st.session_state.messages.append({"role": "user", "content": transcript})
+                with st.chat_message("user"):
+                    st.write(transcript)
             os.remove(webm_file_path)
 
-if st.session_state.messages[-1]["role"] != "assistant":
+# Check if the last message is from the user before generating a response
+if st.session_state.messages[-1]["role"] == "user":
     with st.chat_message("assistant"):
         with st.spinner("Thinking🤔..."):
             final_response = get_answer(st.session_state.messages[-1]["content"])
