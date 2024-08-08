@@ -1,90 +1,99 @@
-import os
-import base64
 import streamlit as st
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from audio_recorder_streamlit import audio_recorder
-from streamlit_float import float_init
-import speech_recognition as sr
-from gtts import gTTS
+import ollama as ol
+from streamlit_mic_recorder import speech_to_text
 
-# Initialize Float feature
-float_init()
+st.set_page_config(page_title="🎙️ Voice Bot", layout="wide")
+st.title("🎙️ Speech Bot")
+st.sidebar.title("`Speak with LLMs` \n`in any language`")
 
-# Load DialoGPT model and tokenizer
-tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
-model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
 
-def get_answer(prompt):
-    inputs = tokenizer(prompt, return_tensors="pt")
-    outputs = model.generate(inputs.input_ids, max_length=100, num_return_sequences=1)
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+def language_selector():
+    lang_options = ["ar", "de", "en", "es", "fr", "it", "ja", "nl", "pl", "pt", "ru", "zh"]
+    with st.sidebar: 
+        return st.selectbox("Speech Language", ["en"] + lang_options)
 
-def speech_to_text(audio_file_path):
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(audio_file_path) as source:
-        audio_data = recognizer.record(source)
-        return recognizer.recognize_google(audio_data)
+def llm_selector():
+    ollama_models = [m['name'] for m in ol.list()['models']]
+    with st.sidebar:
+        return st.selectbox("LLM", ollama_models)
 
-def text_to_speech(text):
-    tts = gTTS(text, lang='en')
-    audio_file_path = 'temp_audio.mp3'
-    tts.save(audio_file_path)
-    return audio_file_path
 
-def autoplay_audio(file_path):
-    with open(file_path, "rb") as f:
-        data = f.read()
-    b64 = base64.b64encode(data).decode("utf-8")
-    md = f"""
-    <audio autoplay>
-    <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-    </audio>
-    """
-    st.markdown(md, unsafe_allow_html=True)
+def print_txt(text):
+    if any("\u0600" <= c <= "\u06FF" for c in text): # check if text contains Arabic characters
+        text = f"<p style='direction: rtl; text-align: right;'>{text}</p>"
+    st.markdown(text, unsafe_allow_html=True)
 
-def initialize_session_state():
-    if "messages" not in st.session_state:
-        st.session_state.messages = [
-            {"role": "assistant", "content": "Hi! How may I assist you today?"}
-        ]
 
-initialize_session_state()
+def print_chat_message(message):
+    text = message["content"]
+    if message["role"] == "user":
+        with st.chat_message("user", avatar="🎙️"):
+            print_txt(text)
+    else:
+        with st.chat_message("assistant", avatar="🦙"):
+            print_txt(text)
 
-st.title("Speech-to-Speech Conversational Bot 🤖")
 
-footer_container = st.container()
-with footer_container:
-    audio_bytes = audio_recorder()
+def record_voice(language="en"):
+    # https://github.com/B4PT0R/streamlit-mic-recorder?tab=readme-ov-file#example
+    state = st.session_state
 
-# Display previous messages
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.write(message["content"])
+    if "text_received" not in state:
+        state.text_received = []
 
-if audio_bytes:
-    with st.spinner("Transcribing..."):
-        webm_file_path = "temp_audio.wav"
-        with open(webm_file_path, "wb") as f:
-            f.write(audio_bytes)
+    text = speech_to_text(
+        start_prompt="🎤 Click and speak to ask question",
+        stop_prompt="⚠️Stop recording🚨",
+        language=language,
+        use_container_width=True,
+        just_once=True,
+    )
 
-        transcript = speech_to_text(webm_file_path)
-        if transcript:
-            if st.session_state.messages[-1]["role"] != "user":
-                st.session_state.messages.append({"role": "user", "content": transcript})
-                with st.chat_message("user"):
-                    st.write(transcript)
-            os.remove(webm_file_path)
+    if text:
+        state.text_received.append(text)
 
-# Check if the last message is from the user before generating a response
-if st.session_state.messages[-1]["role"] == "user":
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking🤔..."):
-            final_response = get_answer(st.session_state.messages[-1]["content"])
-        with st.spinner("Generating audio response..."):    
-            audio_file = text_to_speech(final_response)
-            autoplay_audio(audio_file)
-        st.write(final_response)
-        st.session_state.messages.append({"role": "assistant", "content": final_response})
-        os.remove(audio_file)
+    result = ""
+    for text in state.text_received:
+        result += text
 
-footer_container.float("bottom: 0rem;")
+    state.text_received = []
+
+    return result if result else None
+
+
+def main():
+    model = llm_selector()
+    with st.sidebar:
+        question = record_voice(language=language_selector())
+    
+    # init chat history for a model
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = {}
+    if model not in st.session_state.chat_history:
+        st.session_state.chat_history[model] = []
+    chat_history = st.session_state.chat_history[model]
+    
+    # print conversation history
+    for message in chat_history:
+        print_chat_message(message)
+
+    if question:
+        user_message = {"role": "user", "content": question}
+        print_chat_message(user_message)
+        chat_history.append(user_message)
+        response = ol.chat(model=model, messages=chat_history)
+        answer = response['message']['content']
+        ai_message = {"role": "assistant", "content": answer}
+        print_chat_message(ai_message)
+        chat_history.append(ai_message)
+
+        # truncate chat history to keep 20 messages max
+        if len(chat_history) > 20:
+            chat_history = chat_history[-20:]
+        
+        # update chat history
+        st.session_state.chat_history[model] = chat_history
+
+
+if __name__ == "__main__":
+    main()
