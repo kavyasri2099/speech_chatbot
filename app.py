@@ -1,7 +1,7 @@
 import os
 import base64
 import streamlit as st
-import pyttsx3
+from gtts import gTTS
 import speech_recognition as sr
 from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from audio_recorder_streamlit import audio_recorder
@@ -27,10 +27,9 @@ def speech_to_text(audio_file_path):
         return recognizer.recognize_google(audio_data)
 
 def text_to_speech(text):
-    engine = pyttsx3.init()
+    tts = gTTS(text, lang='en')
     audio_file_path = 'temp_audio.mp3'
-    engine.save_to_file(text, audio_file_path)
-    engine.runAndWait()
+    tts.save(audio_file_path)
     return audio_file_path
 
 def autoplay_audio(file_path):
