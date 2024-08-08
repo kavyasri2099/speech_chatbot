@@ -4,3 +4,8 @@ torch
 openai-whisper
 sounddevice
 numpy
+pip install streamlit pyttsx3 
+speechrecognition 
+transformers 
+audio_recorder_streamlit 
+streamlit-float
