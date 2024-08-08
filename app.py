@@ -1,23 +1,22 @@
 import os
 import base64
 import streamlit as st
-from gtts import gTTS
-import speech_recognition as sr
-from transformers import GPT2LMHeadModel, GPT2Tokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from audio_recorder_streamlit import audio_recorder
 from streamlit_float import float_init
+import speech_recognition as sr
+from gtts import gTTS
 
 # Initialize Float feature
 float_init()
 
-# Load GPT-2 model and tokenizer
-model_name = "gpt2"  # Use GPT-2 for demonstration
-tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-model = GPT2LMHeadModel.from_pretrained(model_name)
+# Load DialoGPT model and tokenizer
+tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
+model = AutoModelForCausalLM.from_pretrained("microsoft/DialoGPT-medium")
 
 def get_answer(prompt):
     inputs = tokenizer(prompt, return_tensors="pt")
-    outputs = model.generate(**inputs)
+    outputs = model.generate(inputs.input_ids, max_length=100, num_return_sequences=1)
     return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
 def speech_to_text(audio_file_path):
